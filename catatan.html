@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Catatan Mingguan - Pengeluaran</title>
+
+  <!-- Bootstrap CDN -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+  <style>
+    body {
+      background: linear-gradient(180deg,#131728 0%,#081026 100%);
+      color: #eef6ff;
+      font-family: "Segoe UI", Roboto, Arial, sans-serif;
+      min-height:100vh;
+      padding:28px 16px;
+      display:flex;
+      align-items:flex-start;
+      justify-content:center;
+    }
+    .wrap { width:100%; max-width:820px; }
+    .card-soft {
+      background: linear-gradient(135deg,#22274e,#0d1830);
+      border-radius:12px;
+      padding:16px;
+      box-shadow: 0 8px 24px rgba(2,6,23,0.6);
+      border: 1px solid rgba(255,255,255,0.03);
+      margin-bottom:12px;
+    }
+    .btn-main {
+      background: linear-gradient(180deg,#5e54c6,#25316a);
+      color:#ecffd6; border:none; border-radius:10px;
+    }
+    .muted { color:#9fb0d6; }
+    .danger-sm { padding:4px 8px; font-size:12px; border-radius:6px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <a class="btn btn-light btn-sm" href="index.html">⬅ Kembali</a>
+      <h5 class="m-0">Catatan Mingguan</h5>
+      <div class="muted">Week: <span id="weekId"></span></div>
+    </div>
+
+    <div class="card-soft mb-3">
+      <label class="muted">Dana Mingguan</label>
+      <div class="input-group mb-2">
+        <input id="dana" type="number" class="form-control" placeholder="Masukkan dana minggu ini (Rp)" />
+        <button class="btn btn-main" onclick="simpanDana()">Simpan</button>
+      </div>
+      <div class="muted">Total saat ini: <strong id="totalNow">Rp 0</strong></div>
+    </div>
+
+    <div class="card-soft mb-3">
+      <div class="row g-2">
+        <div class="col-7">
+          <input id="deskripsi" class="form-control" placeholder="Deskripsi pengeluaran (mis. makan)" />
+        </div>
+        <div class="col-3">
+          <input id="jumlah" class="form-control" type="number" placeholder="Jumlah (Rp)" />
+        </div>
+        <div class="col-2 d-grid">
+          <button class="btn btn-main" onclick="tambah()">Tambah</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="list" class="mb-3"></div>
+
+    <div class="d-flex gap-2">
+      <button class="btn btn-outline-danger w-100" onclick="resetWeekConfirmed()">Reset Minggu (kosongkan)</button>
+      <button class="btn btn-light w-100" onclick="archiveNow()">Archive (simpan total & reset)</button>
+    </div>
+
+  </div>
+
+<script>
+  // same week helper
+  function getWeekId(date = new Date()) {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
+    const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+    return d.getUTCFullYear() + '-W' + String(weekNo).padStart(2,'0');
+  }
+
+  function formatRupiah(n){
+    return 'Rp ' + (Number(n)||0).toLocaleString('id-ID');
+  }
+
+  // initialize roll if needed (same logic as index)
+  function loadAndRollIfNeeded() {
+    const storedWeek = localStorage.getItem('currentWeekId');
+    const nowWeek = getWeekId();
+    if (storedWeek && storedWeek !== nowWeek) {
+      // move previous week's total to weeks
+      const prevEntries = JSON.parse(localStorage.getItem('pengeluaran')) || [];
+      const prevTotal = prevEntries.reduce((s,e)=> s + (Number(e.jumlah)||0), 0);
+      const weeks = JSON.parse(localStorage.getItem('weeks')) || [];
+      weeks.push({ id: storedWeek, label: storedWeek, total: prevTotal });
+      while (weeks.length > 4) weeks.shift();
+      localStorage.setItem('weeks', JSON.stringify(weeks));
+      // reset pengeluaran
+      localStorage.setItem('pengeluaran', JSON.stringify([]));
+      // update week id
+      localStorage.setItem('currentWeekId', nowWeek);
+    } else if (!storedWeek) {
+      localStorage.setItem('currentWeekId', nowWeek);
+    }
+  }
+
+  loadAndRollIfNeeded();
+
+  // load current data
+  let pengeluaran = JSON.parse(localStorage.getItem('pengeluaran')) || [];
+  let dana = Number(localStorage.getItem('danaMingguan')) || 0;
+  const weekId = localStorage.getItem('currentWeekId') || getWeekId();
+  document.getElementById('weekId').textContent = weekId;
+  document.getElementById('dana').value = dana || '';
+
+  function renderList() {
+    const listEl = document.getElementById('list');
+    if (!pengeluaran.length) {
+      listEl.innerHTML = '<div class="card-soft p-3 muted">Belum ada pengeluaran minggu ini.</div>';
+    } else {
+      let html = '';
+      pengeluaran.forEach((it, idx) => {
+        html += `<div class="card-soft mb-2 d-flex justify-content-between align-items-center">
+                  <div>
+                    <div><strong>${escapeHtml(it.deskripsi)}</strong></div>
+                    <div class="muted small">Rp ${Number(it.jumlah).toLocaleString('id-ID')}</div>
+                  </div>
+                  <div class="text-end">
+                    <button class="btn btn-sm btn-danger danger-sm" onclick="hapus(${idx})">Hapus</button>
+                  </div>
+                </div>`;
+      });
+      listEl.innerHTML = html;
+    }
+    updateTotals();
+  }
+
+  function updateTotals() {
+    const total = pengeluaran.reduce((s,it)=> s + (Number(it.jumlah)||0), 0);
+    document.getElementById('totalNow').textContent = formatRupiah(total);
+    localStorage.setItem('pengeluaran', JSON.stringify(pengeluaran));
+  }
+
+  function simpanDana(){
+    const v = Number(document.getElementById('dana').value) || 0;
+    dana = v;
+    localStorage.setItem('danaMingguan', dana);
+    alert('Dana mingguan tersimpan.');
+    updateTotals();
+  }
+
+  function tambah(){
+    const d = document.getElementById('deskripsi').value.trim();
+    const j = Number(document.getElementById('jumlah').value);
+    if(!d || !j) return alert('Isi deskripsi dan jumlah!');
+    pengeluaran.push({ deskripsi: d, jumlah: j, createdAt: new Date().toISOString() });
+    document.getElementById('deskripsi').value = '';
+    document.getElementById('jumlah').value = '';
+    renderList();
+  }
+
+  function hapus(i){
+    if(!confirm('Hapus item ini?')) return;
+    pengeluaran.splice(i,1);
+    renderList();
+  }
+
+  // manual archive now: simpan minggu sekarang ke 'weeks' dan reset pengeluaran
+  function archiveNow(){
+    const currentWeek = localStorage.getItem('currentWeekId') || getWeekId();
+    const total = pengeluaran.reduce((s,it)=> s + (Number(it.jumlah)||0), 0);
+    const weeks = JSON.parse(localStorage.getItem('weeks')) || [];
+    weeks.push({ id: currentWeek, label: currentWeek, total: total });
+    while(weeks.length > 4) weeks.shift();
+    localStorage.setItem('weeks', JSON.stringify(weeks));
+    localStorage.setItem('pengeluaran', JSON.stringify([]));
+    pengeluaran = [];
+    // set currentWeekId to new week (advance)
+    const newWeek = getWeekId(new Date(Date.now() + 7*24*3600*1000)); // approx next week
+    localStorage.setItem('currentWeekId', newWeek);
+    alert('Minggu ini diarsipkan dan data direset.');
+    document.getElementById('weekId').textContent = localStorage.getItem('currentWeekId');
+    renderList();
+  }
+
+  function resetWeekConfirmed(){
+    if(!confirm('Kosongkan semua pengeluaran minggu ini?')) return;
+    pengeluaran = [];
+    localStorage.setItem('pengeluaran', JSON.stringify([]));
+    renderList();
+  }
+
+  // simple html-escape
+  function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  // initial render
+  renderList();
+
+  </script>
+</body>
+</html>
